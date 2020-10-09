@@ -1,0 +1,354 @@
+---
+title: "Midterm Project"
+author: "Maria Bolshakova"
+date: "10/8/2020"
+output: html_document
+---
+# Introduction
+
+
+The dataset I’m using for this project is a year of data collected on my fitness and sleep activity through my FitBit. I’ve always enjoyed looking at my FitBit stats in the app I use, but I wanted to conduct a more thorough analysis of my activity over the past year (October 2019-September 2020). Some of the important variables in this dataset are: date, day of the week, steps, floors, distance, calories burned, calories burned from activity, weight, and minutes of sleep. I generally wear my FitBit throughout the day and when I sleep, so it is almost always tracking my activity. Although my FitBit tracks heart rate, that data was unavailable. However, there are multiple variables that are based off heart rate such as minutes sedentary, light activity, vigorous activity, and calories burned from activity. I would like to address the following overarching question and sub-questions for this analysis:
+
+
+#### Main Question:
+
+How does my personal FitBit data characterize multiple markers of health and wellbeing?
+
+Sub-questions:
+
+1.) How did the Covid-19 pandemic affect my health in terms of activity, sleep, and weight?
+
+2.) What days of the week am I most active and get the most sleep?
+
+3.) How are my activity, weight, and sleep related to each other?
+
+
+# Methods
+
+
+I downloaded this data from the FitBit website, which has a dashboard of my data and the ability to export data. I had to download each individual month and then combine it into one excel spreadsheet. I was originally going to do this in R, however, the spreadsheets were not consistent and it made sense to first make a complete dataset and then read it into R and complete the data cleanup and wrangling. In Excel, I added ID (days 1-366), as well as day of the week (Monday, Tuesday, Wednesday). 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(knitr)
+library(psych)
+library(Hmisc)
+library(summarytools)
+fitbit <- data.table::fread('FitBit_Master.csv')
+
+```
+
+### Data Wrangling Code
+
+```{r, results="hide", message=FALSE}
+
+str(fitbit)
+## Numbers were commas were read in as character instead of numeric/integer, need to fix.
+ fitbit$calories <- as.numeric(gsub(",","",fitbit$calories))
+ fitbit$steps <- as.numeric(gsub(",","",fitbit$steps))
+ fitbit$mins_sedentary <- as.numeric(gsub(",","",fitbit$mins_sedentary))
+ fitbit$calories_activity <- as.numeric(gsub(",","",fitbit$calories_activity))
+ 
+## Converting to date class
+as.Date(fitbit$date, "%Y/%m/%d")
+
+##Summary stats
+ 
+summary(fitbit$calories)
+summary(fitbit$steps)
+summary(fitbit$mins_asleep)
+summary(fitbit$distance)
+summary(fitbit$weight)
+summary(fitbit$floors)
+
+## Making new categorical variable of activity level as determined by calories burned using the quartiles in the summary statistics on calories. 
+fitbit$activity_level <-ifelse(fitbit$calories >=2471, "Very High Activity",
+                           ifelse(fitbit$calories >=2184 & fitbit$calories <2471, "High Activity",
+                           ifelse(fitbit$calories >=1974 & fitbit$calories <2184, "Average Activity", "Low Activity")))
+
+fitbit %>%
+  group_by(activity_level) %>%
+summarise(
+  first=min(calories),
+  last=max(calories))
+fitbit %>% count(activity_level)
+
+## Making new categorical variable of steps level/activity level
+
+fitbit$steps_level <-ifelse(fitbit$steps >=15000, "Very High Step Count",
+                           ifelse(fitbit$steps >=10000 & fitbit$steps <15000, "High Step Count",
+                           ifelse(fitbit$steps >=5000 & fitbit$steps <10000, "Average Step Count", "Low Step Count")))
+fitbit %>%
+  group_by(steps_level) %>%
+summarise(
+  first=min(steps),
+  last=max(steps))
+fitbit %>% count(steps_level)
+
+## Replacing steps under 1000 to be equal to missing
+fitbit$steps <- replace(fitbit$steps, which(fitbit$steps <= 1000), NA)
+
+#Replacing sleep under 5 hours to be equal to mising
+quantile(fitbit$mins_asleep, 0.05, na.rm=TRUE)
+fitbit$mins_asleep <- replace(fitbit$mins_asleep, which(fitbit$mins_asleep < 289), NA)
+
+## Sleep categorical variable 
+fitbit$sleep_cat <-ifelse(fitbit$mins_asleep >=540, "Long Sleep Time",
+                           ifelse(fitbit$mins_asleep >=420 & fitbit$mins_asleep <540, "Ideal Sleep Time", "Short Sleep Time"))
+
+fitbit %>%
+  group_by(sleep_cat) %>%
+summarise(
+  first=min(mins_asleep),
+  last=max(mins_asleep))
+fitbit %>% count(sleep_cat)
+
+##Changing weekday variable to factor 
+fitbit$weekday2 <- as.factor(fitbit$weekday)
+
+## Creating a binary variable out of the date variable of Covid. Using March 14th as the start of Covid/quarantine.
+fitbit$covid <- ifelse(fitbit$date > as.Date("2020/03/13", format = "%Y/%m/%d") &
+                    fitbit$date < as.Date("2020/10/01", format = "%Y/%m/%d"), 1, 0)
+
+## Making a month variable out of the date variable
+month(as.POSIXlt("2020-01-01", format = "%Y-%m-%d"))
+head(month(fitbit$date))
+fitbit <- fitbit %>%
+  mutate(month = month(date))
+
+## Converting month and covid variable to factor class and renaming covid variable 
+fitbit$covid2 <- as.factor(fitbit$covid)
+levels(fitbit$covid2) <- c("Pre-Covid", "Covid")
+
+fitbit$month2 <- as.factor(fitbit$month)
+
+
+```
+
+After installing/loading appropriate libraries and reading in the dataset, I checked the summary statistics for all relevant variables. I noticed that variables with commas in the numbers (e.g steps are generally 1,000+) were read as character variables rather than integers in R. Thus, I converted these to numeric, and also changed the date variable which was a simple character class into a date class. 
+
+I then made various new categorical variables: 
+
+1. Activity based on calories burned in a day. This was split into 4 factors determined by quarter quantiles and resulted in the following evenly split values: very high activity (>2,471 cals), high activity (2,184-2463 cals), average activity (1,979-2,183 cals), and low activity (<1,972 cals). 
+
+2. Step count, which was based on my own personal interpretation/goals of steps I like to achieve in a day: very high step count (>15,000), high step count (10,000-15,000), average step count (5,000-10,000) and low step count (<5,000). I had a high step count the greatest number of days (N=158). Additionally, I changed any value below 1,000 steps to missing, since this indicates that I was not wearing my FitBit that day.
+
+3. For sleep, I made 3 categories which were based on guidelines which indicate 7-9 hours of sleep is ideal. These categories were: short sleep time (<7 hours), ideal sleep time (7-9 hours), and long sleep time (>9 hours). I also noted that the lowest value of sleep was 93 minutes, or roughly 1.5 hours. Since this variable is a sum of all sleep throughout the day, it is hard to believe that I only got 1.5 hours on a given day. More likely, I wasn't wearing my fitbit during a time when I was sleeping, or it died during my sleep, so it didn't capture the full data. For this reason, I converted improbable values that lie in the lower 5% of the data, which is 289 minutes, or almost 5 hours to missing. The maximum is 754 minutes, or 12.5 hours, which is entirely possible for me, given that I know my sleeping/nap pattern. 
+
+Finally, I created two new variables-- one extracting just the month from the date variable, and the other is a binary variable that is "Pre-Covid" and "Covid". I set "Covid" to start March 14, 2020 and has continued until the present/end of the dataset (through September). Dates before March 14th are considered pre-Covid. 
+
+For data exploration, summary statistics and graphs I used a mix of frequency tables (with chi sq), correlation analysis, t-tests, box plots, scatterplots, and barcharts. 
+
+
+# Preliminary Results
+
+
+### Exploratory Statistics
+
+```{r, error=FALSE, message=FALSE, warning=FALSE}
+## Looking at relationship between step count and calories burned.
+
+cor(fitbit$calories, fitbit$steps, use = "complete.obs")
+
+mytable <- xtabs(~steps_level+activity_level, data=fitbit)
+ftable(mytable)
+summary(mytable)
+
+## T-tests for variables pre-covid and during covid
+
+t.test(steps~covid2, data=fitbit)
+t.test(weight~covid2, data=fitbit)
+t.test(mins_asleep~covid2, data=fitbit)
+t.test(calories~covid2, data=fitbit)
+
+```
+
+I first wanted to explore the relationship between calories burned and step count. I tested this using a correlation on the numeric data, as well as a frequency table with chi sq. The correlation was moderately strong (r=0.75). The frequency table showed it is clear that when there is a low or very high step count, that corresponds with low or very high activity based on calories. However, calories burned and step count aren't necessarily always related. I believe this is because there are other forms of activity (yoga, weightlifting, etc) that I sometimes do which do not produce a lot of steps, but do increase heart rate which increases calories burned. 
+
+I also found based on t-tests using covid as the grouping variable, that there was a significant difference of weight during and before covid, with covid resulting in me having less average weight. The mean step count was trending on significance (p=0.06), with less average steps taken during Covid than before Covid. My calories burned were significantly less during Covid than before. Minutes asleep did not significantly differ pre-covid and during covid. 
+
+
+### Frequency Tables of Categorical Variables 
+
+```{r, error=FALSE, message=FALSE, warning=FALSE}
+## Frequency Tables of Categorical Variables
+print(freq(fitbit$activity_level), method = 'render', report.nas = FALSE, headings = FALSE, variable.label = "Activity Level")
+
+print(freq(fitbit$steps_level), method = 'render', report.nas = FALSE, headings = FALSE, variable.label = "Steps Level")
+
+print(freq(fitbit$sleep_cat), method = 'render', report.nas = FALSE, headings = FALSE, variable.label = "Sleep Category")
+
+```
+
+### Data Frame Summary and Descriptive Statistics of Numerical Variables
+
+```{r, error=FALSE, message=FALSE, warning=FALSE}
+print(dfSummary(fitbit, graph.magnif = 0.75), method = 'render')
+
+print(descr(fitbit), method = 'render', stats="fivenum", table.classes = 'st-small')
+
+```
+
+### Descriptive Statistics by Weekday and Covid
+
+```{r, error=FALSE, message=FALSE, warning=FALSE}
+with(fitbit, method='render', stby(data = steps, INDICES = weekday2,
+                   FUN = descr, stats = c("mean", "sd", "min", "med", "max")))
+
+with(fitbit, method='render', stby(data = calories, INDICES = weekday2,
+                   FUN = descr, stats = c("mean", "sd", "min", "med", "max")))
+
+with(fitbit, method='render', stby(data = calories, INDICES = covid,
+                   FUN = descr, stats = c("mean", "sd", "min", "med", "max")))
+```
+
+
+### Graphs and Plots
+
+## Variables By Date and Covid
+```{r, error=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+
+fitbit %>%
+  ggplot(mapping = aes(x=date, y=steps))+
+   geom_point(color = "darkorchid4") +
+  stat_smooth(method=lm)+
+labs(title="Scatterplot of Steps By Date with Regression Line", x="Date", y="Steps")
+
+fitbit %>%
+  ggplot(mapping = aes(x=date, y=calories))+
+  geom_point(color= "orange")+
+  stat_smooth(method=lm)+
+labs(title="Scatterplot of Calories By Date with Regression Line", x="Date", y="Calories")
+
+
+fitbit %>%
+  ggplot(mapping = aes(x=date, y=weight))+
+  geom_point(color= "green")+
+  stat_smooth(method=lm)+
+labs(title="Scatterplot of Weight By Date with Regression Line", x="Date", y="Weight")
+
+fitbit %>%
+  ggplot(mapping = aes(x=date, y=mins_asleep))+
+  geom_point(color= "aquamarine")+
+  stat_smooth(method=lm)+
+labs(title="Scatterplot of Minutes Asleep By Date with Regression Line", x="Date", y="Minutes Asleep")
+
+
+  fitbit %>%
+    filter(!(steps %in% NA)) %>%
+ggplot(aes(x=covid2, y=steps)) +
+  geom_boxplot(fill="coral")+
+     stat_summary(fun.data="mean_sdl")+
+labs(title="Boxplot of Steps Before and After Covid", x="Covid", y="Steps")
+  
+
+ fitbit %>%
+    filter(!(calories %in% NA)) %>%
+ggplot(aes(x=covid2, y=calories)) +
+  geom_boxplot()+
+     stat_summary(fun.data="mean_sdl")+
+labs(title="Boxplot of Calories Burned Before and After Covid", x="Covid", y="Calories")
+ 
+  fitbit %>%
+    filter(!(mins_asleep %in% NA)) %>%
+ggplot(aes(x=covid2, y=mins_asleep)) +
+  geom_boxplot()+
+     stat_summary(fun.data="mean_sdl")+
+labs(title="Boxplot of Sleep Before and After Covid", x="Covid", y="Sleep")
+  
+      fitbit %>%
+    filter(!(weight %in% NA)) %>%
+ggplot(aes(x=covid2, y=weight)) +
+  geom_boxplot()+
+     stat_summary(fun.data="mean_sdl")+
+labs(title="Average Weight Before and After Covid", x="Covid", y="Weight")
+  
+```
+
+
+## Variables by Weekday
+```{r, error=FALSE, message=FALSE, warning=FALSE}
+ggplot(data=fitbit, aes(x=weekday, y=steps)) +
+  geom_bar(stat="identity", fill="steelblue")+
+   labs(title="Barchart of Steps by Weekday")
+
+  ggplot(data=fitbit, aes(x=weekday, y=mins_asleep)) +
+  geom_bar(stat="identity", fill="darkgreen")+
+   labs(title="Barchart of Sleep by Weekday", x="Weekday", y="Sleep")
+  
+   ggplot(data=fitbit, aes(x=weekday, y=calories)) +
+  geom_bar(stat="identity", fill="cyan2")+
+   labs(title="Barchart of Calories Burned by Weekday", x="Weekday", y="Calories Burned")
+
+```
+
+## Associations between variables 
+
+```{r, error=FALSE, message=FALSE, warning=FALSE}
+  fitbit %>%
+    filter(!(sleep_cat  %in% NA)) %>%
+ggplot(aes(x=sleep_cat, y=steps)) +
+  geom_boxplot()+
+     stat_summary(fun.data="mean_sdl")+
+labs(title="Average Steps by Sleep Category", x="Sleep Category", y="Steps")
+
+fitbit %>%
+    filter(!(sleep_cat  %in% NA)) %>%
+ggplot(aes(x=sleep_cat, y=calories)) +
+  geom_boxplot()+
+     stat_summary(fun.data="mean_sdl")+
+labs(title="Average Calories Burned by Sleep Category", x="Sleep Category", y="Calories Burned")
+
+fitbit %>%
+  ggplot(aes(x=steps, fill=activity_level, color=activity_level)) +
+  scale_fill_brewer(palette="Dark2")+
+  geom_histogram(position="identity")+
+labs(title="Histogram of Steps by Activity Level", x="Steps", y="Activity Level")
+
+fitbit %>%
+  ggplot(aes(x=weight, fill=activity_level, color=activity_level)) +
+  scale_fill_brewer(palette="Accent")+
+  geom_histogram(position="identity")+
+labs(title="Histogram of Weight by Activity Level", x="Weight", y="Activity Level")
+
+
+fitbit %>%
+  ggplot(mapping = aes(x=steps, y=weight))+
+  geom_point(color= "darkorange")+
+  stat_smooth(method=lm)+
+labs(title="Scatterplot of Weight By Step Count with Regression Line", x="Step Count", y="Weight")
+
+fitbit %>%
+  ggplot(mapping = aes(x=steps, y=distance))+
+  geom_point(color= "red")+
+  stat_smooth(method=lm)+
+labs(title="Scatterplot of Distance By Step Count with Regression Line", x="Step Count", y="Distance")
+
+fitbit %>%
+  ggplot(mapping = aes(x=steps, y=floors))+
+  geom_point(color= "purple")+
+  stat_smooth(method=lm)+
+labs(title="Scatterplot of Floors By Step Count with Regression Line", x="Step Count", y="Floors")
+
+```
+
+# Conclusions
+
+The data show very interesting patterns about my activity and sleep throughout the last year. For example, I have on average taken less steps during covid than before, and my calories burned have been significantly less, although my sleep has not been affected. My weight has gone down during Covid, despite less steps and less activity. I believe this is due to nutrition and eating healthier/tracking my calories and making a distinct effort to lose weight. Still, it is interesting that I used to burn many more calories but have lost significant weight with less activity. I also have switched exercises from jogging/running on the treadmill and weightlifting at the gym pre-covid, to taking walks around my neighborhood and yoga during covid, which could explain why overall I'm burning less calories (heart rate is not as increased because the during covid activities are less vigorous). Additionally, although I am still walking around my neighborhood, I am doing considerably less walking to and from school, meetings, etc., since I am mostly at my home.
+
+The graphs show that I am most active on Fridays (using all dates), which makes sense because I usually work out the most on a Friday, and then would generally go out and walk around the town (pre-covid), which required a lot of steps. I sleep most on Mondays, which also makes sense because I am usually tired from the weekend, and sleep a lot Sunday night- Monday morning, and then occasionally nap on Monday as well. 
+
+It would make more sense if my weight and activity were more related (ie higher step count/calories burned= less weight), however, as previously mentioned there were nutrition factors that affected my weight, which goes to show nutrition is very important in losing weight even if you have a lot of physical activity! It did look like there might be some differences in sleep category based on calories burned, so I will need to explore that later.
+
+Moving forward, I would like to conduct more concrete analyses of this data to determine significance. I also might incorporate an LA weather dataset and see if weather relates to my step count. I know that when it has been really hot outside I haven't been going for walks, and I think that would be interesting to track. I also could potentially scrape my fitbit data for exercise data (e.g runs, jogs, walks, weightlifting, yoga), and make a categorical variable out of that, and then explore differences between those exercises and calories burned. There are additional variables such as calories burned due to light activity, moderate activity, and physical activity which could be interesting to look at in relation to exercise. Finally, I think it would be interesting to code this data for events such as holidays, vacations, trips, etc., to see if things like Thanksgiving or being home for Winter Break leads to less activity. 
+
+
+
+
+
+
